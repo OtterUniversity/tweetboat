@@ -39,9 +39,7 @@ impl Pass {
     }
 
     pub fn apply<'a>(&'a self, content: &'a str) -> Option<String> {
-        let Self {
-            label, stem, ..
-        } = self;
+        let Self { label, stem, .. } = self;
 
         let out = self
             .extract(content)

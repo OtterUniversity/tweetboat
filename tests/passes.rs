@@ -26,15 +26,9 @@ fn standard_passes() {
     );
     assert_eq!(
         extracted.next(),
-        Some((
-            "/p/C5W2QwZrt-Z/",
-            SpoilerTags::Spoiler
-        ))
+        Some(("/p/C5W2QwZrt-Z/", SpoilerTags::Spoiler))
     );
-    assert_eq!(
-        extracted.next(),
-        Some(("/t/ZPRTX3AwH/", SpoilerTags::None))
-    );
+    assert_eq!(extracted.next(), Some(("/t/ZPRTX3AwH/", SpoilerTags::None)));
 
     assert!(extracted.next().is_none());
 }

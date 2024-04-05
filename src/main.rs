@@ -1,7 +1,3 @@
-mod cache;
-mod config;
-mod pass;
-
 use std::fs;
 use std::future::IntoFuture;
 use std::sync::{Arc, RwLock};
@@ -13,6 +9,10 @@ use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 use crate::cache::CacheEntry;
 use crate::pass::Pass;
 use crate::{cache::ReplyCache, config::Config};
+
+mod cache;
+mod config;
+mod pass;
 
 struct State {
     config: Config,
@@ -110,7 +110,7 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
             let Some(entry) = entry else {
                 return Ok(());
             };
-            
+
             // Suppress embeds the unfurler provided lazily
             if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
                 tracing::info!("Unfurler triggered on {:?}, suppressing...", entry);

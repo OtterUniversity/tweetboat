@@ -127,7 +127,6 @@ pub enum CacheEntry {
     Pending,
     /// A filled entry pointing to the bot's reply message ID.
     Filled(MessageId),
-
 }
 
 /// A token indicating that a message has been received and needs a reply but
