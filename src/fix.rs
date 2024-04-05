@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn extract() {
         let link_regex =
-            Regex::new("(?:^|\\s)(\\|\\||)https://(?:x|twitter)\\.com(/\\S+)((?:\\s)?\\|\\||)")
+            Regex::new("(?:^|\\s)(\\|\\||)https://(?:x|twitter)\\.com(/\\S+)(\\s?\\|\\||)")
                 .unwrap();
 
         assert_eq!(
