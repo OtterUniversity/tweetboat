@@ -8,11 +8,9 @@ type MessageId = Id<MessageMarker>;
 
 /// A cache mapping a source message ID to its reply, if the bot sent one.
 ///
-/// This cache is backed by a ring buffer of 128 ID pairs, and as it reaches
-/// capacity, the eldest element is evicted. Once an entry has been written,
-/// it cannot be removed until it gets popped out by a newer one.
-/// 
-/// A `ReplyCache` instance can be acquired via `[Default::default()]`.
+/// This cache is backed by a ring buffer of a fixed number of ID pairs, and as
+/// it reaches capacity, the eldest element is evicted. Once an entry has been 
+/// written, it cannot be removed until it gets popped out by a newer one.
 pub struct ReplyCache(VecDeque<(MessageId, MessageId)>);
 
 impl ReplyCache {
