@@ -6,3 +6,25 @@ reply_cache_size = 128
 stem = "https://vxtwitter.com"
 # Regex for matching links. Must have 3 groups: spoiler tag start, path, spoiler tag end.
 link_pattern = "(?:^|\\s)(\\|\\||)https://(?:x|twitter)\\.com(/\\S+)(\\s?\\|\\||)"
+
+# Passes: each pass gets run independently and all of its matched URLs are appended
+# to the bot's output.
+
+[[pass]]
+# The label that appears in the masked link.
+label = "Tweet"
+# The regex to match the link -- should start at `https` and end at the TLD and
+# must not contain match groups.
+regex = "https://(?:x|twitter)\\.com"
+# The stem to replace the matched area with.
+stem = "https://vxtwitter.com"
+
+[[pass]]
+label = "Instagram Post"
+regex = "https://(?:www\\.)?instagram\\.com"
+stem = "https://ddinstagram.com"
+
+[[pass]]
+label = "TikTok"
+regex = "https://(?:[\\w]+\\.)?tiktok\\.com"
+stem = "https://tiktxk.com"
