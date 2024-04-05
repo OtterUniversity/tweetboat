@@ -127,17 +127,17 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                     );
                 };
 
-                let content = message
+                // Edit or delete if the author removed all links
+                if let Some(content) = message
                     .content
                     .as_deref()
-                    .and_then(|content| fix(content, &state.config.link_pattern));
-
-                state
-                    .rest
-                    .update_message(message.channel_id, reply_id)
-                    .allowed_mentions(Some(&AllowedMentions::default()))
-                    .content(Some(content.as_deref().unwrap_or("*Link removed by author.*")))?
-                    .await?;
+                    .and_then(|content| fix(content, &state.config.link_pattern)) {
+                    state.rest.update_message(message.channel_id, reply_id)
+                        .allowed_mentions(Some(&AllowedMentions::default()))
+                        .content(Some(&content))?.await?;
+                } else {
+                    state.rest.delete_message(message.channel_id, reply_id).await?;
+                }
             }
         }
 
