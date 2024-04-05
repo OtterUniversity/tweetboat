@@ -31,6 +31,7 @@ pub struct ReplyCache(VecDeque<(MessageId, CacheEntry)>);
 
 impl ReplyCache {
     pub fn with_capacity(capacity: usize) -> Self {
+        assert!(capacity > 0, "Cache must have positive capacity");
         Self(VecDeque::with_capacity(capacity))
     }
 
