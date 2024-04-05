@@ -12,7 +12,7 @@ pub struct Pass {
 }
 
 /// An enum representing the spoiler tags on a link.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SpoilerTags {
     /// The link is not spoilered.
     None,
@@ -47,21 +47,21 @@ impl Pass {
             .extract(content)
             .fold(String::new(), |mut out, (path, spoiler_tags)| {
                 let spoil = spoiler_tags != SpoilerTags::None;
-                
+
                 if spoil {
                     let _ = write!(&mut out, "||");
                 }
                 let _ = write!(&mut out, "[`{label}`]({stem}{path}) ");
                 if spoil {
                     let _ = write!(&mut out, "|| ");
-                } 
+                }
 
                 out
             });
 
         (!out.is_empty()).then_some(out)
     }
-    
+
     pub fn apply_all(passes: &[Self], content: &str) -> Option<String> {
         let mut transformed = None;
         for pass in passes {
@@ -69,7 +69,7 @@ impl Pass {
                 transformed.get_or_insert(String::new()).push_str(&patched);
             }
         }
-        
+
         transformed
     }
 }

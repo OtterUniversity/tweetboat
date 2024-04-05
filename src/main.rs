@@ -10,6 +10,7 @@ use twilight_gateway::{Event, Intents, Shard, ShardId};
 use twilight_http::Client;
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 
+use crate::cache::CacheEntry;
 use crate::pass::Pass;
 use crate::{cache::ReplyCache, config::Config};
 
@@ -85,72 +86,44 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                     );
                 }
 
-                let reply = state
-                    .rest
-                    .create_message(message.channel_id)
-                    .content(&content)?
-                    .reply(message.id)
-                    .allowed_mentions(Some(&AllowedMentions::default()))
-                    .await?
-                    .model()
-                    .await?;
-
-                let ticket = state.replies.write().unwrap().insert(message.id, reply.id);
-                if ticket.is_some() {
-                    tracing::warn!("Racy embed condition hit, suppressing...");
-                    tokio::spawn(
+                let token = state.replies.write().unwrap().file_pending(message.id);
+                if let Some(token) = token {
+                    let reply = {
                         state
                             .rest
-                            .update_message(message.channel_id, message.id)
-                            .flags(MessageFlags::SUPPRESS_EMBEDS)
-                            .into_future(),
-                    );
+                            .create_message(message.channel_id)
+                            .content(&content)?
+                            .reply(message.id)
+                            .allowed_mentions(Some(&AllowedMentions::default()))
+                            .await?
+                            .model()
+                            .await?
+                    };
+                    state.replies.write().unwrap().insert(token, reply.id);
                 }
-            }
-        }
-
-        // DELETE: Delete our reply when someone deletes their source message
-        Event::MessageDelete(message) => {
-            let reply_id = state.replies.read().unwrap().get_reply(message.id);
-
-            // Temporary extension with `if let` pulls the guard across the await
-            // boundary as it keeps the temp. alive for the entire scope, so we need
-            // to separate it.
-            if let Some(reply_id) = reply_id {
-                state
-                    .rest
-                    .delete_message(message.channel_id, reply_id)
-                    .await?;
             }
         }
 
         // UPDATE: Edit our reply when someone edits a link in/out
         Event::MessageUpdate(message) => {
-            // Unfurler gave us embeds
-            if message
-                .embeds
-                .as_ref()
-                .is_some_and(|embeds| !embeds.is_empty())
-            {
-                // TODO: In the future we should probably keep a smaller ticket queue
-                tracing::info!("Ticketing premature unfurler hit on {}", message.id);
-                state.replies.write().unwrap().ticket(message.id);
-            }
+            let entry = state.replies.read().unwrap().get_entry(message.id);
+            let Some(entry) = entry else {
+                return Ok(());
+            };
+            
+            // Suppress embeds the unfurler provided lazily
+            if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
+                tracing::info!("Unfurler triggered on {:?}, suppressing...", entry);
+                tokio::spawn(
+                    state
+                        .rest
+                        .update_message(message.channel_id, message.id)
+                        .flags(MessageFlags::SUPPRESS_EMBEDS)
+                        .into_future(),
+                );
+            };
 
-            let reply_id = state.replies.read().unwrap().get_reply(message.id);
-            if let Some(reply_id) = reply_id {
-                // Suppress embeds the unfurler provided lazily
-                if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
-                    tracing::info!("Unfurler triggered on {}, suppressing...", message.id);
-                    tokio::spawn(
-                        state
-                            .rest
-                            .update_message(message.channel_id, message.id)
-                            .flags(MessageFlags::SUPPRESS_EMBEDS)
-                            .into_future(),
-                    );
-                };
-
+            if let CacheEntry::Filled(reply_id) = entry {
                 if let Some(content) = message.content {
                     if let Some(content) = Pass::apply_all(&state.config.passes, &content) {
                         state
@@ -169,6 +142,20 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
             }
         }
 
+        // DELETE: Delete our reply when someone deletes their source message
+        Event::MessageDelete(message) => {
+            let entry = state.replies.write().unwrap().take_entry(message.id);
+
+            // Temporary extension with `if let` pulls the guard across the await
+            // boundary as it keeps the temp. alive for the entire scope, so we need
+            // to separate it
+            if let Some(CacheEntry::Filled(reply_id)) = entry {
+                state
+                    .rest
+                    .delete_message(message.channel_id, reply_id)
+                    .await?;
+            }
+        }
         _ => {}
     }
 

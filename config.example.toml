@@ -10,6 +10,8 @@ link_pattern = "(?:^|\\s)(\\|\\||)https://(?:x|twitter)\\.com(/\\S+)(\\s?\\|\\||
 # Passes: each pass gets run independently and all of its matched URLs are appended
 # to the bot's output.
 
+# NOTE: these are used in tests! If you change them, update the integration test too.
+
 [[pass]]
 # The label that appears in the masked link.
 label = "Tweet"
