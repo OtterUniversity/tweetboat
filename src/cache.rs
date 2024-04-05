@@ -110,7 +110,7 @@ impl ReplyCache {
 
 impl Debug for ReplyCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FixCache")
+        f.debug_struct("ReplyCache")
             .field("size", &self.0.len())
             .field("state", &self.0)
             .finish()
