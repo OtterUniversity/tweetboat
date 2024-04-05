@@ -1260,6 +1260,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tweetboat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "twilight",
+ "twilight-gateway",
+ "twilight-http",
+ "twilight-model",
+]
+
+[[package]]
 name = "twilight"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1424,24 +1442,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "vxtwitter_bot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "twilight",
- "twilight-gateway",
- "twilight-http",
- "twilight-model",
-]
 
 [[package]]
 name = "want"
