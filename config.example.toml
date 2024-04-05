@@ -1,0 +1,8 @@
+token = "your bot's token"
+
+# Number of replies to cache. Cache memory usage (bytes) = `this * 16`.
+reply_cache_size = 128
+# Prefix for fixed links -- no trailing slash!
+stem = "https://vxtwitter.com"
+# Regex for matching links. Must have 3 groups: spoiler tag start, path, spoiler tag end.
+link_pattern = "(?:^|\\s)(\\|\\||)https://(?:x|twitter)\\.com(/\\S+)(\\s?\\|\\||)"
