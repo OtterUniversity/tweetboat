@@ -9,9 +9,9 @@ type MessageId = Id<MessageMarker>;
 /// A cache mapping a source message ID to its reply, if the bot sent one.
 ///
 /// This cache is backed by a ring buffer of a fixed number of ID pairs, and as
-/// it reaches capacity, the eldest element is evicted. Once an entry has been 
+/// it reaches capacity, the eldest element is evicted. Once an entry has been
 /// written, it cannot be removed until it gets popped out by a newer one.
-pub struct ReplyCache(VecDeque<(MessageId, MessageId)>);
+pub struct ReplyCache(VecDeque<(MessageId, CacheEntry)>);
 
 impl ReplyCache {
     pub fn with_capacity(capacity: usize) -> Self {
@@ -25,38 +25,43 @@ impl ReplyCache {
     }
 
     /// Gets the ID of the reply message to the provided source message via
-    /// binary search. 
+    /// binary search.
     pub fn get_reply(&self, source: MessageId) -> Option<MessageId> {
-        self.search(source).ok().map(|idx| self.0[idx].1)
+        self.search(source)
+            .ok()
+            .and_then(|idx| self.0[idx].1.to_id())
     }
 
     /// Inserts an ID pair of a source message to the reply message the bot sent.
     /// If the cache is at capacity, the eldest entry is evicted. If there is
-    /// already a mapping from the source ID, the new entry is not applied.
-    pub fn insert(&mut self, source: MessageId, reply: MessageId) {
+    /// already a mapping from the source ID, the new entry will overwrite it.
+    ///
+    /// # Ticketing
+    /// If a `MESSAGE_UPDATE` has come in with embeds, a suppression ticket will
+    /// be filed, and when that same ID is inserted, the ticket will be returned.
+    /// When this happens, the caller should suppress embeds on the source
+    /// message.
+    #[must_use]
+    pub fn insert(&mut self, source: MessageId, reply: MessageId) -> Option<Ticket> {
         // If at capacity, remove the eldest entry
         if self.0.len() == self.0.capacity() {
             self.0.pop_front();
         }
-
-        // Fast path: messages almost always come in order, so we check to
-        // see if we can just insert to the back
-        if let Some(&(head_source, _head_reply)) = self.0.back() {
-            if head_source <= source {
-                self.0.push_back((source, reply));
-                return;
+        
+        match self.search(source) {
+            // Ok means there's already an entry there, check if it's a ticket
+            Ok(idx) if matches!(self.0.get(idx), Some((_, CacheEntry::SuppressTicketed))) => {
+                return Some(Ticket);
             }
+            Ok(idx) | Err(idx) => self.0.insert(idx, (source, CacheEntry::Filled(reply))),
         }
 
-        if let Err(target_idx) = self.search(source) {
-            self.0.insert(target_idx, (source, reply));
-        } else {
-            tracing::warn!(
-                "Tried to double-map {source}: {old:?} -> {new}",
-                old = self.get_reply(source),
-                new = reply,
-            );
-        }
+        None
+    }
+
+    pub fn ticket(&mut self, source: MessageId) {
+        let idx = self.search(source).map_or_else(|ok| ok, |err| err);
+        self.0.insert(idx, (source, CacheEntry::SuppressTicketed));
     }
 
     #[cfg(test)]
@@ -71,6 +76,23 @@ impl Debug for ReplyCache {
             .field("size", &self.0.len())
             .field("state", &self.0)
             .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CacheEntry {
+    Filled(MessageId),
+    SuppressTicketed,
+}
+
+pub struct Ticket;
+
+impl CacheEntry {
+    fn to_id(self) -> Option<MessageId> {
+        match self {
+            Self::Filled(id) => Some(id),
+            _ => None,
+        }
     }
 }
 

@@ -71,6 +71,8 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
             }
 
             if let Some(content) = Pass::apply_all(&state.config.passes, &message.content) {
+                tracing::info!("Rewriting {:?} => {content:?}", message.content);
+
                 // If the unfurler has an embed cached, embeds will be included
                 if !message.embeds.is_empty() {
                     // `spawn` so that we can suppress embeds and repost in parallel
@@ -93,7 +95,17 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                     .model()
                     .await?;
 
-                state.replies.write().unwrap().insert(message.id, reply.id);
+                let ticket = state.replies.write().unwrap().insert(message.id, reply.id);
+                if ticket.is_some() {
+                    tracing::warn!("Racy embed condition hit, suppressing...");
+                    tokio::spawn(
+                        state
+                            .rest
+                            .update_message(message.channel_id, message.id)
+                            .flags(MessageFlags::SUPPRESS_EMBEDS)
+                            .into_future(),
+                    );
+                }
             }
         }
 
@@ -114,10 +126,22 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
 
         // UPDATE: Edit our reply when someone edits a link in/out
         Event::MessageUpdate(message) => {
+            // Unfurler gave us embeds
+            if message
+                .embeds
+                .as_ref()
+                .is_some_and(|embeds| !embeds.is_empty())
+            {
+                // TODO: In the future we should probably keep a smaller ticket queue
+                tracing::info!("Ticketing premature unfurler hit on {}", message.id);
+                state.replies.write().unwrap().ticket(message.id);
+            }
+
             let reply_id = state.replies.read().unwrap().get_reply(message.id);
             if let Some(reply_id) = reply_id {
                 // Suppress embeds the unfurler provided lazily
                 if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
+                    tracing::info!("Unfurler triggered on {}, suppressing...", message.id);
                     tokio::spawn(
                         state
                             .rest
@@ -136,7 +160,10 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                             .content(Some(&content))?
                             .await?;
                     } else {
-                        state.rest.delete_message(message.channel_id, reply_id).await?;
+                        state
+                            .rest
+                            .delete_message(message.channel_id, reply_id)
+                            .await?;
                     }
                 }
             }
