@@ -1,6 +1,6 @@
 mod cache;
 mod config;
-mod fix;
+mod pass;
 
 use std::fs;
 use std::future::IntoFuture;
@@ -10,7 +10,8 @@ use twilight_gateway::{Event, Intents, Shard, ShardId};
 use twilight_http::Client;
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 
-use crate::{cache::ReplyCache, config::Config, fix::fix};
+use crate::pass::Pass;
+use crate::{cache::ReplyCache, config::Config};
 
 struct State {
     config: Config,
@@ -69,8 +70,7 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                 return Ok(());
             }
 
-            let src = &message.content;
-            if let Some(content) = fix(src, &state.config.link_pattern) {
+            if let Some(content) = Pass::apply_all(&state.config.passes, &message.content) {
                 // If the unfurler has an embed cached, embeds will be included
                 if !message.embeds.is_empty() {
                     // `spawn` so that we can suppress embeds and repost in parallel
@@ -127,16 +127,17 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
                     );
                 };
 
-                // Edit or delete if the author removed all links
-                if let Some(content) = message
-                    .content
-                    .as_deref()
-                    .and_then(|content| fix(content, &state.config.link_pattern)) {
-                    state.rest.update_message(message.channel_id, reply_id)
-                        .allowed_mentions(Some(&AllowedMentions::default()))
-                        .content(Some(&content))?.await?;
-                } else {
-                    state.rest.delete_message(message.channel_id, reply_id).await?;
+                if let Some(content) = message.content {
+                    if let Some(content) = Pass::apply_all(&state.config.passes, &content) {
+                        state
+                            .rest
+                            .update_message(message.channel_id, reply_id)
+                            .allowed_mentions(Some(&AllowedMentions::default()))
+                            .content(Some(&content))?
+                            .await?;
+                    } else {
+                        state.rest.delete_message(message.channel_id, reply_id).await?;
+                    }
                 }
             }
         }

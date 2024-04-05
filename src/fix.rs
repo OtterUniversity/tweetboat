@@ -7,35 +7,15 @@ const REPLACEMENT_STEM: &str = "https://vxtwitter.com";
 /// The regex for the link pattern. Matches any space-delimited URL with
 /// `twitter` or `x` as the host.
 
-/// An enum representing the spoiler tags on a link.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum SpoilerTags {
-    /// The link is not spoilered.
-    None,
-    /// The link has ||spoiler|| tags.
-    Spoiler,
-    /// The link is either started or terminated with a spoiler tag, but not
-    /// both. When resending a link with mismatched tags, the bot will just
-    /// apply full spoilers.
-    Mismatched,
-}
+
 
 /// Matches all twitter links in a content slice and outputs an iterator with
 /// their paths. For example, "https://twitter.com/path" extracts to `["/path"]`.
 fn tweet_paths<'a>(
     content: &'a str,
     link_regex: &'a Regex,
-) -> impl Iterator<Item = (&'a str, SpoilerTags)> {
-    link_regex.captures_iter(content).map(|capture| {
-        let (_, [sp_open, path, sp_close]) = capture.extract();
-        let spoiler_marker = match (!sp_open.is_empty(), !sp_close.is_empty()) {
-            (false, false) => SpoilerTags::None,
-            (true, true) => SpoilerTags::Spoiler,
-            _ => SpoilerTags::Mismatched,
-        };
-
-        (path, spoiler_marker)
-    })
+) -> impl Iterator<Item = (&'a str, crate::pass::SpoilerTags)> {
+    [].into_iter()
 }
 
 /// Takes a content slice, extracts all of its Twitter links, and embeds them
