@@ -5,6 +5,10 @@ use std::sync::{Arc, RwLock};
 use twilight_gateway::{Event, Intents, Shard, ShardId};
 use twilight_http::Client;
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
+use twilight_model::id::{
+    marker::{ChannelMarker, MessageMarker},
+    Id,
+};
 
 use crate::cache::CacheEntry;
 use crate::pass::Pass;
@@ -26,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
 
-    let mut shard = Shard::new(
+    let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
         Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
@@ -39,31 +43,53 @@ async fn main() -> Result<(), anyhow::Error> {
         rest,
     });
 
+    shard_loop(state, shard).await
+}
+
+async fn shard_loop(state: Arc<State>, mut shard: Shard) -> Result<(), anyhow::Error> {
     loop {
         let event = match shard.next_event().await {
             Ok(event) => event,
             Err(e) => {
-                tracing::error!(source = ?e, "Error receiving event");
+                tracing::error!(error = ?e, "Error receiving event");
+
                 if e.is_fatal() {
-                    break;
-                } else {
-                    continue;
+                    return Err(e.into());
                 }
+
+                continue;
             }
         };
 
-        let state = Arc::clone(&state);
-        tokio::spawn(async {
-            if let Err(e) = process_event(state, event).await {
-                tracing::error!(source = ?e, "Error dispatching event");
-            }
-        });
+        if let Err(e) = dispatch_event(Arc::clone(&state), event).await {
+            tracing::error!(error = ?e, "Error dispatching event");
+        }
     }
-
-    Ok(())
 }
 
-async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Error> {
+/// Launches a background Tokio task to suppress an embed. If the request fails,
+/// the error is logged. The resulting [Joinhandle] is returned.
+///
+/// [JoinHandle]: tokio::task::JoinHandle
+fn suppress_embeds_deferred(
+    rest: &Client,
+    channel_id: Id<ChannelMarker>,
+    message_id: Id<MessageMarker>,
+) -> tokio::task::JoinHandle<()> {
+    // Create the future separately from spawning so that `client` isn't sent across threads
+    let f = rest
+        .update_message(channel_id, message_id)
+        .flags(MessageFlags::SUPPRESS_EMBEDS)
+        .into_future();
+
+    tokio::spawn(async move {
+        if let Err(e) = f.await {
+            tracing::error!(error = ?e, "Error suppressing embeds on {channel_id}/{message_id}");
+        }
+    })
+}
+
+async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Error> {
     match event {
         // CREATE: Fix embeds when someone sends a twitter link
         Event::MessageCreate(message) => {
@@ -76,29 +102,21 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
 
                 // If the unfurler has an embed cached, embeds will be included
                 if !message.embeds.is_empty() {
-                    // `spawn` so that we can suppress embeds and repost in parallel
-                    tokio::spawn(
-                        state
-                            .rest
-                            .update_message(message.channel_id, message.id)
-                            .flags(MessageFlags::SUPPRESS_EMBEDS)
-                            .into_future(),
-                    );
+                    suppress_embeds_deferred(&state.rest, message.channel_id, message.id);
                 }
 
                 let token = state.replies.write().unwrap().file_pending(message.id);
                 if let Some(token) = token {
-                    let reply = {
-                        state
-                            .rest
-                            .create_message(message.channel_id)
-                            .content(&content)?
-                            .reply(message.id)
-                            .allowed_mentions(Some(&AllowedMentions::default()))
-                            .await?
-                            .model()
-                            .await?
-                    };
+                    let reply = state
+                        .rest
+                        .create_message(message.channel_id)
+                        .content(&content)?
+                        .reply(message.id)
+                        .allowed_mentions(Some(&AllowedMentions::default()))
+                        .await?
+                        .model()
+                        .await?;
+
                     state.replies.write().unwrap().insert(token, reply.id);
                 }
             }
@@ -114,13 +132,7 @@ async fn process_event(state: Arc<State>, event: Event) -> Result<(), anyhow::Er
             // Suppress embeds the unfurler provided lazily
             if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
                 tracing::info!("Unfurler triggered on {:?}, suppressing...", entry);
-                tokio::spawn(
-                    state
-                        .rest
-                        .update_message(message.channel_id, message.id)
-                        .flags(MessageFlags::SUPPRESS_EMBEDS)
-                        .into_future(),
-                );
+                suppress_embeds_deferred(&state.rest, message.channel_id, message.id);
             };
 
             if let CacheEntry::Filled(reply_id) = entry {

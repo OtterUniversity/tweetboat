@@ -1,3 +1,8 @@
 /target
-/.idea
 config.toml
+
+# OS meta
+**/.DS_Store
+
+# IDEs
+/.idea
