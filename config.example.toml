@@ -1,7 +1,7 @@
 token = "your bot's token"
 
 # Number of replies to cache. Cache memory usage (bytes) = `this * 16`.
-reply_cache_size = 128
+reply_cache_size = 3
 
 # Passes: each pass gets run independently and all of its matched URLs are appended
 # to the bot's output.

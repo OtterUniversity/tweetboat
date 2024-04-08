@@ -2,7 +2,7 @@ use std::fs;
 use std::future::IntoFuture;
 use std::sync::{Arc, RwLock};
 
-use twilight_gateway::{Event, Intents, Shard, ShardId};
+use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 use twilight_model::id::{
@@ -30,12 +30,12 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
 
+    let rest = Client::new(config.token.clone());
     let shard = Shard::new(
         ShardId::ONE,
         config.token.clone(),
         Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
     );
-    let rest = Client::new(config.token.clone());
 
     let state = Arc::new(State {
         replies: RwLock::new(ReplyCache::with_capacity(config.reply_cache_size)),
@@ -47,24 +47,13 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn shard_loop(state: Arc<State>, mut shard: Shard) -> Result<(), anyhow::Error> {
-    loop {
-        let event = match shard.next_event().await {
-            Ok(event) => event,
-            Err(e) => {
-                tracing::error!(error = ?e, "Error receiving event");
-
-                if e.is_fatal() {
-                    return Err(e.into());
-                }
-
-                continue;
-            }
-        };
-
-        if let Err(e) = dispatch_event(Arc::clone(&state), event).await {
-            tracing::error!(error = ?e, "Error dispatching event");
+    while let Some(event) = shard.next_event(EventTypeFlags::all()).await {
+        if let Err(e) = dispatch_event(Arc::clone(&state), event?).await {
+            tracing::error!(error = ?e, "Dispatch failed");
         }
     }
+
+    Ok(())
 }
 
 /// Launches a background Tokio task to suppress an embed. If the request fails,
@@ -110,7 +99,7 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
                     let reply = state
                         .rest
                         .create_message(message.channel_id)
-                        .content(&content)?
+                        .content(&content)
                         .reply(message.id)
                         .allowed_mentions(Some(&AllowedMentions::default()))
                         .await?
@@ -142,7 +131,7 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
                             .rest
                             .update_message(message.channel_id, reply_id)
                             .allowed_mentions(Some(&AllowedMentions::default()))
-                            .content(Some(&content))?
+                            .content(Some(&content))
                             .await?;
                     } else {
                         state
@@ -168,6 +157,7 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
                     .await?;
             }
         }
+
         _ => {}
     }
 
