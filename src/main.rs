@@ -82,7 +82,7 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
     match event {
         // CREATE: Fix embeds when someone sends a twitter link
         Event::MessageCreate(message) => {
-            if message.author.bot {
+            if message.author.bot || state.config.ignored_users.contains(&message.author.id) {
                 return Ok(());
             }
 

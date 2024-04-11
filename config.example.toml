@@ -2,6 +2,8 @@ token = "your bot's token"
 
 # Number of replies to cache. Cache memory usage (bytes) = `this * 16`.
 reply_cache_size = 3
+# User IDs the bot won't respond to.
+ignored_users = []
 
 # Passes: each pass gets run independently and all of its matched URLs are appended
 # to the bot's output.
