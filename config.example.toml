@@ -4,6 +4,8 @@ token = "your bot's token"
 reply_cache_size = 3
 # User IDs the bot won't respond to.
 ignored_users = []
+# The number of milliseconds to wait before suppressing embeds -- can help reduce flashing.
+suppress_delay_millis = 200
 
 # Passes: each pass gets run independently and all of its matched URLs are appended
 # to the bot's output.

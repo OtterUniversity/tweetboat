@@ -9,6 +9,8 @@ pub struct Config {
     pub reply_cache_size: usize,
     #[serde(default)]
     pub ignored_users: Vec<Id<UserMarker>>,
+    #[serde(default)]
+    pub suppress_delay_millis: u64,
     #[serde(rename = "pass")]
     pub passes: Vec<Pass>,
 }

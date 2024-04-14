@@ -1,6 +1,7 @@
 use std::fs;
 use std::future::IntoFuture;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
@@ -62,6 +63,7 @@ async fn shard_loop(state: Arc<State>, mut shard: Shard) -> Result<(), anyhow::E
 /// [JoinHandle]: tokio::task::JoinHandle
 fn suppress_embeds_deferred(
     rest: &Client,
+    delay: u64,
     channel_id: Id<ChannelMarker>,
     message_id: Id<MessageMarker>,
 ) -> tokio::task::JoinHandle<()> {
@@ -72,6 +74,10 @@ fn suppress_embeds_deferred(
         .into_future();
 
     tokio::spawn(async move {
+        if delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+
         if let Err(e) = f.await {
             tracing::error!(error = ?e, "Error suppressing embeds on {channel_id}/{message_id}");
         }
@@ -91,7 +97,12 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
 
                 // If the unfurler has an embed cached, embeds will be included
                 if !message.embeds.is_empty() {
-                    suppress_embeds_deferred(&state.rest, message.channel_id, message.id);
+                    suppress_embeds_deferred(
+                        &state.rest,
+                        state.config.suppress_delay_millis,
+                        message.channel_id,
+                        message.id,
+                    );
                 }
 
                 let token = state.replies.write().unwrap().file_pending(message.id);
@@ -121,7 +132,12 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
             // Suppress embeds the unfurler provided lazily
             if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
                 tracing::info!("Unfurler triggered on {:?}, suppressing...", entry);
-                suppress_embeds_deferred(&state.rest, message.channel_id, message.id);
+                suppress_embeds_deferred(
+                    &state.rest,
+                    state.config.suppress_delay_millis,
+                    message.channel_id,
+                    message.id,
+                );
             };
 
             if let CacheEntry::Filled(reply_id) = entry {
