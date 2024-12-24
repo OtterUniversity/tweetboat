@@ -20,6 +20,9 @@ label = "Tweet"
 regex = "https://(?:x|twitter)\\.com"
 # The stem to replace the matched area with.
 stem = "https://vxtwitter.com"
+# The query params to keep in the URL -- empty ([]) to remove query string entirely or
+# omitted to keep entire query string
+keep_query = []
 
 [[pass]]
 label = "Instagram Post"
