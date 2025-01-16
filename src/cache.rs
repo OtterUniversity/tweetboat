@@ -121,11 +121,11 @@ impl <K: Ord + Copy + std::fmt::Debug, V: std::fmt::Debug + Copy> Debug for Cach
 }
 
 impl SeenCache {
-    pub fn search_by_value(&self, value: String) -> Vec<(MessageId, String)> {
+    pub fn search_by_value(&self, value: &str) -> Vec<(MessageId, String)> {
         return self.0.iter()
             .filter_map(|(key, _value)|
                 if let CacheEntry::Filled(__value) = _value {
-                    if __value.to_owned() == value {
+                    if __value.as_str() == value {
                         Some((key.clone(), __value.clone()))
                     } else {
                         None
