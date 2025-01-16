@@ -27,31 +27,34 @@ type MessageId = Id<MessageMarker>;
 ///
 /// [pending]: CacheEntry::Pending
 /// [take_entry]: ReplyCache::take_entry
-pub struct ReplyCache(VecDeque<(MessageId, CacheEntry)>);
+pub struct Cache<K: Ord + Copy, V: Clone>(VecDeque<(K, CacheEntry<V>)>);
 
-impl ReplyCache {
+pub type ReplyCache = Cache<MessageId, MessageId>;
+pub type SeenCache = Cache<MessageId, String>;
+
+impl <K: Ord + Copy, V: Clone> Cache<K, V> {
     pub fn with_capacity(capacity: usize) -> Self {
         assert!(capacity > 0, "Cache must have positive capacity");
         Self(VecDeque::with_capacity(capacity))
     }
 
     #[inline]
-    fn search(&self, source: MessageId) -> Result<usize, usize> {
+    fn search(&self, source: &K) -> Result<usize, usize> {
         self.0
-            .binary_search_by_key(&source, |&(source, _reply)| source)
+            .binary_search_by_key(&source, |(source, _reply)| source)
     }
 
     /// Files a [CacheEntry::Pending] value for the given source message. If the
     /// entry is free, an [InsertToken] is returned. If there is another value
     /// in the source message's slot, `[None]` is returned.
-    pub fn file_pending(&mut self, source: MessageId) -> Option<InsertToken> {
+    pub fn file_pending(&mut self, source: K) -> Option<InsertToken<K>> {
         if self.0.len() == self.0.capacity() {
             self.0.pop_front();
         }
 
         // Fast path: messages generally come in order, so we check the tail to
         // see if we can just append
-        if let Some(&(back_source, _entry)) = self.0.back() {
+        if let Some(&(back_source, ref _entry)) = self.0.back() {
             if back_source <= source {
                 let idx = self.0.len(); // The push increments len by 1
                 self.0.push_back((source, CacheEntry::Pending));
@@ -60,7 +63,7 @@ impl ReplyCache {
         }
 
         // Err means we have an open slot to insert into
-        if let Err(idx) = self.search(source) {
+        if let Err(idx) = self.search(&source) {
             self.0.insert(idx, (source, CacheEntry::Pending));
             Some(InsertToken { source, idx })
         } else {
@@ -69,10 +72,10 @@ impl ReplyCache {
     }
 
     /// Completes an insertion into the cache after a reply has been sent.
-    pub fn insert(&mut self, token: InsertToken, reply: MessageId) {
+    pub fn insert(&mut self, token: InsertToken<K>, reply: V) {
         // The token stores the index it was at when it was made, check if it's
         // still there
-        if let Some(&token_match) = self.0.get(token.idx) {
+        if let Some(&ref token_match) = self.0.get(token.idx) {
             if token_match.0 == token.source {
                 self.0[token.idx] = (token.source, CacheEntry::Filled(reply));
                 return;
@@ -80,22 +83,21 @@ impl ReplyCache {
         }
 
         // Fallthrough: another entry has been added since we got the token
-        let idx = self.search(token.source);
+        let idx = self.search(&token.source);
         let idx = idx.map_or_else(|ok| ok, |err| err);
         self.0[idx] = (token.source, CacheEntry::Filled(reply));
     }
 
     /// Gets an entry from the cache from the provided source message ID by
     /// binary searching the backing vector.
-    pub fn get_entry(&self, source: MessageId) -> Option<CacheEntry> {
-        self.search(source).ok().map(|idx| self.0[idx].1)
+    pub fn get_entry(&self, source: K) -> Option<CacheEntry<V>> {
+        return self.search(&source).ok().map(|idx| self.0[idx].1.clone());
     }
 
     /// Gets an entry from the cache, invalidating it after it has been returned.
-    pub fn take_entry(&mut self, source: MessageId) -> Option<CacheEntry> {
-        if let Ok(idx) = self.search(source) {
-            let (_, entry) = self.0[idx];
-            self.0[idx] = (source, CacheEntry::Pending);
+    pub fn take_entry(&mut self, source: K) -> Option<CacheEntry<V>> {
+        if let Ok(idx) = self.search(&source) {
+            let (_, entry) = std::mem::replace(&mut self.0[idx], (source, CacheEntry::Pending));
             Some(entry)
         } else {
             None
@@ -109,24 +111,41 @@ impl ReplyCache {
     }
 }
 
-impl Debug for ReplyCache {
+impl <K: Ord + Copy + std::fmt::Debug, V: std::fmt::Debug + Copy> Debug for Cache<K, V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReplyCache")
+        f.debug_struct("Cache")
             .field("size", &self.0.len())
             .field("state", &self.0)
             .finish()
     }
 }
 
+impl SeenCache {
+    pub fn search_by_value(&self, value: &str) -> Vec<(MessageId, String)> {
+        return self.0.iter()
+            .filter_map(|(key, _value)|
+                if let CacheEntry::Filled(__value) = _value {
+                    if __value.as_str() == value {
+                        Some((key.clone(), __value.clone()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            ).collect();
+    }
+}
+
 /// An entry in the [ReplyCache].
 // Thanks to niches this enum does not change the size of the cache at all!
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CacheEntry {
+pub enum CacheEntry<T> {
     /// An incomplete entry that has not received a reply. This state is also
     /// used for deleted messages.
     Pending,
     /// A filled entry pointing to the bot's reply message ID.
-    Filled(MessageId),
+    Filled(T),
 }
 
 /// A token indicating that a message has been received and needs a reply but
@@ -135,14 +154,14 @@ pub enum CacheEntry {
 /// This class contains the source message ID and the speculative index of
 /// where the entry will end up.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct InsertToken {
-    source: MessageId,
+pub struct InsertToken<T> {
+    source: T,
     idx: usize,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CacheEntry, ReplyCache};
+    use super::{CacheEntry, Cache};
 
     #[test]
     fn cache() {
@@ -158,7 +177,7 @@ mod tests {
             };
         }
 
-        let mut cache = ReplyCache::with_capacity(4);
+        let mut cache = Cache::with_capacity(4);
 
         // Out of order insertion (2 then 1)
         let token = cache.file_pending(id!(2)).unwrap();

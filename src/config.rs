@@ -7,6 +7,7 @@ use crate::pass::Pass;
 pub struct Config {
     pub token: String,
     pub reply_cache_size: usize,
+    pub seen_cache_size: Option<usize>,
     #[serde(default)]
     pub ignored_users: Vec<Id<UserMarker>>,
     #[serde(default)]
