@@ -140,6 +140,10 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
 
         // UPDATE: Edit our reply when someone edits a link in/out
         Event::MessageUpdate(message) => {
+            // Ignore non-content edits like removing embeds
+            if message.edited_timestamp == None {
+                return Ok(());
+            }
             let entry = state.replies.read().unwrap().get_entry(message.id);
             let Some(entry) = entry else {
                 return Ok(());
