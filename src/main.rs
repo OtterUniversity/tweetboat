@@ -130,7 +130,7 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
             };
 
             // Suppress embeds the unfurler provided lazily
-            if message.embeds.is_some_and(|embeds| !embeds.is_empty()) {
+            if !message.embeds.is_empty() {
                 tracing::info!("Unfurler triggered on {:?}, suppressing...", entry);
                 suppress_embeds_deferred(
                     &state.rest,
@@ -141,8 +141,8 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
             };
 
             if let CacheEntry::Filled(reply_id) = entry {
-                if let Some(content) = message.content {
-                    if let Some(content) = Pass::apply_all(&state.config.passes, &content) {
+                if !message.content.is_empty() {
+                    if let Some(content) = Pass::apply_all(&state.config.passes, &message.content) {
                         state
                             .rest
                             .update_message(message.channel_id, reply_id)
