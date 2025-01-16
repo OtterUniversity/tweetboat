@@ -3,6 +3,9 @@ use std::future::IntoFuture;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use anyhow::Ok;
+use cache::SeenCache;
+use repost::add_repost_counts;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
@@ -18,11 +21,13 @@ use crate::{cache::ReplyCache, config::Config};
 mod cache;
 mod config;
 mod pass;
+mod repost;
 
-struct State {
+pub struct State {
     config: Config,
     rest: Client,
     replies: RwLock<ReplyCache>,
+    seen: RwLock<SeenCache>,
 }
 
 #[tokio::main]
@@ -38,8 +43,12 @@ async fn main() -> Result<(), anyhow::Error> {
         Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
     );
 
+    // Use config size if it exists, otherwise default to reply cache size
+    let seen_size = config.seen_cache_size.unwrap_or(config.reply_cache_size);
+
     let state = Arc::new(State {
         replies: RwLock::new(ReplyCache::with_capacity(config.reply_cache_size)),
+        seen: RwLock::new(SeenCache::with_capacity(seen_size)),
         config,
         rest,
     });
@@ -118,6 +127,13 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
                         .await?;
 
                     state.replies.write().unwrap().insert(token, reply.id);
+                    if let Some(new_content) = add_repost_counts(&state, reply.id, &reply.content) {
+                        state.rest
+                            .update_message(reply.channel_id, reply.id)
+                            .content(Some(new_content).as_deref())
+                            .allowed_mentions(Some(&AllowedMentions::default()))
+                            .await?;
+                    }
                 }
             }
         }
@@ -143,11 +159,12 @@ async fn dispatch_event(state: Arc<State>, event: Event) -> Result<(), anyhow::E
             if let CacheEntry::Filled(reply_id) = entry {
                 if !message.content.is_empty() {
                     if let Some(content) = Pass::apply_all(&state.config.passes, &message.content) {
+                        let content = add_repost_counts(&state, reply_id, &content);
                         state
                             .rest
                             .update_message(message.channel_id, reply_id)
                             .allowed_mentions(Some(&AllowedMentions::default()))
-                            .content(Some(&content))
+                            .content(content.as_deref())
                             .await?;
                     } else {
                         state
